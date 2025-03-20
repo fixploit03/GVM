@@ -13,11 +13,11 @@ parser.add_argument("-w", "--width", type=int, default=5, help="Number of column
 args = parser.parse_args()
 
 # Configuration
-video_path = args.input          # Input video path from -i
-grid_output = args.output        # Output grid filename from -o
-font_size = args.size            # Font size from -s (default: 20)
-grid_cols = args.width           # Grid width (columns) from -w (default: 5)
-interval_sec = 30                # Screenshot interval in seconds
+video_path = args.input
+grid_output = args.output
+font_size = args.size
+grid_cols = args.width
+interval_sec = 30
 
 # Validate arguments
 try:
@@ -69,7 +69,7 @@ except Exception:
 
 # Pre-calculate text size
 try:
-    sample_timestamp = "00:00"
+    sample_timestamp = "00:00:00"  # Updated for HH:MM:SS format
     text_bbox = font.getbbox(sample_timestamp)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
@@ -88,21 +88,20 @@ try:
         if current_time >= duration_sec:
             break
         
-        # Jump to the exact time
         cap.set(cv2.CAP_PROP_POS_MSEC, current_time * 1000)
         ret, frame = cap.read()
         if not ret:
             print(f"Warning: Failed to read frame at {current_time} seconds, stopping")
             break
         
-        # Convert to RGB
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame_rgb)
         
-        # Calculate timestamp
-        minutes = int(current_time // 60)
+        # Improved timestamp with HH:MM:SS
+        hours = int(current_time // 3600)
+        minutes = int((current_time % 3600) // 60)
         seconds = int(current_time % 60)
-        timestamp = f"{minutes:02d}:{seconds:02d}"
+        timestamp = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         
         # Add timestamp with stroke
         draw = ImageDraw.Draw(img)
@@ -110,13 +109,14 @@ try:
         x = img_width - text_width - margin
         y = img_height - text_height - margin
         
-        # Draw black stroke
         for offset_x in range(-stroke_width, stroke_width + 1):
             for offset_y in range(-stroke_width, stroke_width + 1):
                 draw.text((x + offset_x, y + offset_y), timestamp, fill=(0, 0, 0), font=font)
         
-        # Draw white text
         draw.text((x, y), timestamp, fill=(255, 255, 255), font=font)
+        
+        # Resize image to prevent dimension overflow (50% of original size)
+        img = img.resize((img_width // 2, img_height // 2), Image.Resampling.LANCZOS)
         
         screenshots.append(img)
         print(f"Screenshot captured at {timestamp} ({current_time} seconds)")
@@ -128,7 +128,7 @@ except Exception as e:
 cap.release()
 print(f"Total screenshots captured: {len(screenshots)}")
 
-# Create and save the grid
+# Create and save the grid with dimension checking
 try:
     if screenshots:
         width, height = screenshots[0].size
@@ -136,9 +136,21 @@ try:
         grid_width = width * grid_cols
         grid_height = height * grid_rows
         
-        grid_image = Image.new("RGB", (grid_width, grid_height), (255, 255, 255))
+        # Check if dimensions exceed typical limits (65500 pixels)
+        if grid_width > 65000 or grid_height > 65000:
+            print(f"Warning: Grid dimensions ({grid_width}x{grid_height}) exceed typical limit of 65500 pixels")
+            # Further reduce size if needed
+            scale_factor = min(65000 // grid_width, 65000 // grid_height)
+            if scale_factor < 1:
+                width = width * scale_factor
+                height = height * scale_factor
+                screenshots = [img.resize((int(width), int(height)), Image.Resampling.LANCZOS) for img in screenshots]
+                grid_width = width * grid_cols
+                grid_height = height * grid_rows
+        
+        grid_image = Image.new("RGB", (int(grid_width), int(grid_height)), (255, 255, 255))
         for i, img in enumerate(screenshots):
-            grid_image.paste(img, ((i % grid_cols) * width, (i // grid_cols) * height))
+            grid_image.paste(img, ((i % grid_cols) * int(width), (i // grid_cols) * int(height)))
         
         grid_image.save(grid_output)
         print(f"Grid saved as: {grid_output} with {grid_cols} columns and {grid_rows} rows")
